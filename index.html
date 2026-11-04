@@ -1,0 +1,29 @@
+<!doctype html>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>
+:root{--b:#bde;height:100%;box-sizing:border-box;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);scroll-padding-top:env(safe-area-inset-top,0);touch-action:none}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--b:#012}}
+:root[data-theme=dark]{--b:#012}
+body{margin:0;height:100%;display:flex;background:var(--b)}
+canvas{margin:auto;max-width:100%;max-height:100%}
+</style>
+<canvas id=c width=320 height=480></canvas>
+<script>
+let y,v,p,s,t,g,x=c.getContext('2d'),R=_=>{y=240;v=s=t=0;p=[]};
+R();x.textAlign='center';x.font='bold 40px monospace';
+onpointerdown=onkeydown=e=>{if(!e.repeat){g||R();g=1;v=-6.5}};
+setInterval(_=>{
+if(g){
+v+=.4;y+=v;t++%110||p.push([320,140+Math.random()*200]);
+p.forEach(q=>{q[0]-=2;q[0]==28&&s++});
+p=p.filter(q=>q[0]>-52);
+g=y>12&&y<468&&!p.some(q=>q[0]<92&&q[0]>16&&Math.abs(y-q[1])>48)
+}
+x.fillStyle='#6cf';x.fillRect(0,0,320,480);
+x.fillStyle='#3a3';
+p.forEach(q=>{x.fillRect(q[0],0,52,q[1]-60);x.fillRect(q[0],q[1]+60,52,480)});
+x.fillStyle='#fc0';x.beginPath();x.arc(80,y,12,0,7);x.fill();
+x.fillStyle='#fff';x.fillText(s,160,60);
+g||x.fillText(t?'Game over':'Tap',160,240)
+},16)
+</script>
