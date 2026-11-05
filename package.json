@@ -1,0 +1,11 @@
+{
+  "name": "flappy-birds",
+  "version": "1.0.0",
+  "description": "A small canvas Flappy Bird clone with goals, skins, music and a local leaderboard.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npx serve .",
+    "test": "node --test"
+  }
+}
