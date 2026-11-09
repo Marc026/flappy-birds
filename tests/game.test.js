@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, STATUS } from '../js/game.js';
+import { MODES } from '../js/config.js';
 
 // Unit tests for the pure game rules (run with `npm test`; no browser needed).
 
@@ -53,4 +54,28 @@ test('speed grows with the score and late-game pipes sway', () => {
   g.update();
   assert.ok(g.speed > 2);          // faster than the base speed
   assert.ok(g.pipes[0].amp > 0);   // pipes spawned after 15 points sway
+});
+
+test('modes change the tuning: Zen is slow with wide constant gaps, Hard is tight and fast', () => {
+  const zen = new Game(1, MODES.zen);
+  const hard = new Game(1, MODES.hard);
+  zen.flap(); zen.update();
+  hard.flap(); hard.update();
+  assert.equal(zen.pipes[0].gap, MODES.zen.gap);
+  assert.equal(zen.pipes[0].amp, 0);
+  assert.ok(hard.pipes[0].gap < zen.pipes[0].gap);
+  assert.ok(hard.speed > zen.speed);
+});
+
+test('a shield absorbs one crash, then the next one is fatal', () => {
+  const g = new Game(1);
+  g.flap();
+  g.shield = true;
+  g.bird.y = 440;                                    // below the ground line
+  assert.ok(g.update().includes('break'));
+  assert.equal(g.shield, false);
+  assert.equal(g.status, STATUS.PLAYING);
+  g.bird.y = 440;                                    // crash again, no shield left
+  assert.ok(g.update().includes('hit'));
+  assert.equal(g.status, STATUS.OVER);
 });

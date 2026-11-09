@@ -58,3 +58,18 @@ export const MEDALS = [
 
 /** Chance that a pipe pair carries a coin in its opening. */
 export const COIN_CHANCE = 0.5;
+
+/**
+ * Game modes: tuning presets chosen from the menu (add a mode by adding an entry).
+ * gap/minGap = pipe opening in px (shrinks with score down to minGap), speed = base scroll speed,
+ * ramp = multiplier on the score-driven speed-up (0 = none), sway = pipes may sway late-game,
+ * ranked: false = practice mode (coins count, but score stats, leaderboard and goals do not).
+ */
+export const MODES = {
+  classic: { name: 'Classic', gap: WORLD.gap, minGap: WORLD.minGap, speed: WORLD.speed, ramp: 1, sway: true },
+  hard: { name: 'Hard', gap: 104, minGap: 84, speed: 2.4, ramp: 1.5, sway: true },
+  zen: { name: 'Zen', gap: 150, minGap: 150, speed: 1.8, ramp: 0, sway: false, ranked: false },
+};
+
+/** Probability that a pipe pair carries a shield pickup (rolled before coins, see game.js). */
+export const SHIELD_CHANCE = 0.1;

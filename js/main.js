@@ -2,10 +2,11 @@
  * main.js — application entry point. Wires state, input, audio, effects, rendering and UI together
  * and runs a fixed-timestep loop: 60 simulation ticks per second regardless of display refresh rate.
  */
-import { W, H, SCALE, WORLD, SKINS, THEMES } from './config.js';
+import { W, H, SCALE, WORLD, SKINS, THEMES, MODES } from './config.js';
 import { Game, STATUS } from './game.js';
 import { draw } from './renderer.js';
 import { claim } from './goals.js';
+import * as daily from './daily.js';
 import { load, save } from './storage.js';
 import { dailySeed } from './rng.js';
 import * as fx from './fx.js';
@@ -14,7 +15,9 @@ import * as ui from './ui.js';
 
 const STEP = 1000 / 60;    // milliseconds per simulation tick
 const LOCKOUT_MS = 300;    // after a crash, restart input is ignored briefly so a panic tap cannot skip the score screen
-const urlSeed = Number(new URLSearchParams(location.search).get('seed')) || null;   // shared challenge link: ?seed=123
+const params = new URLSearchParams(location.search);   // shared challenge link: ?seed=123&mode=hard
+const urlMode = params.get('mode');
+const urlSeed = Number(params.get('seed')) || null;   // shared challenge link: ?seed=123
 
 // --- Setup -------------------------------------------------------------------------------
 const canvas = document.getElementById('game');
@@ -54,6 +57,8 @@ function tick() {
   for (const event of game.update()) {
     if (event === 'score') onScore();
     else if (event === 'coin') onCoin();
+    else if (event === 'shield') onShield();
+    else if (event === 'break') onBreak();
     else if (event === 'hit') endRun();
   }
 }
@@ -72,6 +77,20 @@ function onCoin() {
   fx.emit(WORLD.birdX + 10, game.bird.y, 5, '#ffd700', 1.5);
 }
 
+/** Shield picked up: chime plus a cyan burst. */
+function onShield() {
+  audio.sfx.shield();
+  fx.emit(WORLD.birdX, game.bird.y, 6, '#7fe9ff', 1.5);
+}
+
+/** The shield absorbed a crash: crack sound, a lighter shake and a shard burst. */
+function onBreak() {
+  audio.sfx.crack();
+  fx.hit(0.5);
+  fx.emit(WORLD.birdX, game.bird.y, 8, '#7fe9ff', 2.5);
+  navigator.vibrate?.(20);
+}
+
 /** Record the finished run (stats, coins, leaderboard, daily streak, goals), persist, show game over. */
 function endRun() {
   overAt = performance.now();
@@ -79,20 +98,27 @@ function endRun() {
   fx.hit();
   fx.emit(WORLD.birdX, game.bird.y, 12, look().skin.body, 3);   // feather burst
   navigator.vibrate?.(40);                                       // haptics where supported (Android)
-  const isBest = game.score > data.best;
-  data.best = Math.max(data.best, game.score);
-  data.games += 1;
-  data.total += game.score;
+  const m = MODES[modeKey()];
+  const ranked = m.ranked !== false;   // practice modes (Zen): coins count, but score stats, leaderboard and goals do not
+  const isBest = ranked && game.score > data.best;
   data.coins += game.coins;
-  if (game.score > 0) {   // zero-point runs would only clutter the leaderboard
-    data.board = [...data.board, { score: game.score, date: new Date().toLocaleDateString() }]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);       // keep the top 10
+  let fresh = [];       // lifetime goals completed by this run
+  let dailyDone = [];   // daily goals completed by this run
+  if (ranked) {
+    data.best = Math.max(data.best, game.score);
+    data.games += 1;
+    data.total += game.score;
+    if (game.score > 0) {   // zero-point runs would only clutter the leaderboard
+      data.board = [...data.board, { score: game.score, date: new Date().toLocaleDateString(), mode: m.name }]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);       // keep the top 10
+    }
+    if (mode === 'daily') recordDaily();
+    fresh = claim(data);
+    dailyDone = daily.record(data, { score: game.score, coins: game.coins });   // pays bonus coins for new daily goals
   }
-  if (mode === 'daily') recordDaily();
-  const fresh = claim(data);   // goals completed by this run
   save(data);
-  ui.show('over', data, { score: game.score, isBest, fresh, coins: game.coins });
+  ui.show('over', data, { score: game.score, isBest, fresh, coins: game.coins, mode: m.name, ranked, daily: dailyDone });
 }
 
 /** Daily challenge bookkeeping: the streak grows on consecutive days and resets after a gap. */
@@ -118,20 +144,23 @@ function flap() {
   }
 }
 
+/** Key of the active tuning preset: the daily challenge is always Classic, a shared link carries its own mode. */
+const modeKey = () => (mode === 'daily' ? 'classic' : urlSeed && MODES[urlMode] ? urlMode : MODES[data.mode] ? data.mode : 'classic');
+
 /** Begin a run in the current mode (seeded for daily/shared links). Respects the post-crash lockout. */
 function startRun() {
   if (ui.screen() === 'over' && performance.now() - overAt < LOCKOUT_MS) return;
   audio.init();           // audio may only start from a user gesture; every caller is one
   audio.startMusic();
   audio.setLevel(0);
-  game.reset(mode === 'daily' ? dailySeed() : urlSeed ?? undefined);
+  game.reset(mode === 'daily' ? dailySeed() : urlSeed ?? undefined, MODES[modeKey()]);
   ui.hide();
 }
 
 /** Share a link that replays the same pipes, via the Web Share API or the clipboard. */
 function share() {
   const url = new URL(location.href);
-  url.search = `?seed=${game.seed}`;
+  url.search = `?seed=${game.seed}&mode=${modeKey()}`;
   const text = `I scored ${game.score} in Flappy Birds. Beat me on the same pipes!`;
   if (navigator.share) navigator.share({ text, url: url.href }).catch(() => {});
   else navigator.clipboard?.writeText(`${text} ${url.href}`);
@@ -163,6 +192,12 @@ ui.bind((action, arg) => {
       mode = 'classic';
       startRun();
       break;
+    case 'mode': {   // cycle Classic -> Hard -> Zen
+      const keys = Object.keys(MODES);
+      data.mode = keys[(keys.indexOf(data.mode) + 1) % keys.length];
+      refresh('menu');
+      break;
+    }
     case 'daily':
       mode = 'daily';
       startRun();

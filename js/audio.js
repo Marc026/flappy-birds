@@ -75,5 +75,7 @@ export const sfx = {
     tone(1175 * k, 0.15, 'sine', 0.1, 0.08);
   },
   coin: () => tone(1568, 0.08, 'square', 0.05),
+  shield: () => { tone(660, 0.1, 'triangle', 0.08); tone(990, 0.18, 'triangle', 0.08, 0.08); },   // pickup: rising two-note chime
+  crack: () => tone(180, 0.25, 'square', 0.1),                                                      // shield absorbed a crash
   hit: () => tone(110, 0.4, 'sawtooth', 0.15),
 };

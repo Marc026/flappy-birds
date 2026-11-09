@@ -2,8 +2,9 @@
  * ui.js — DOM overlay screens: menu, customization, goals, leaderboard and game over.
  * Presentation only: it renders HTML from saved data and reports button presses through one callback.
  */
-import { SKINS, THEMES, GOALS, MEDALS } from './config.js';
+import { SKINS, THEMES, GOALS, MEDALS, MODES } from './config.js';
 import { progress, closest } from './goals.js';
+import * as daily from './daily.js';
 
 const root = document.getElementById('ui');   // overlay container declared in index.html
 
@@ -28,11 +29,16 @@ const options = (items, selected, data, act, colour) => items.map(item =>
       : `<button disabled>🔒 ${goalText(item.unlock)} or 🪙 ${item.cost}</button>`
 ).join('');
 
+/** One goal row: text plus a progress bar (used for lifetime and daily goals alike). */
+const goalRow = g => `
+      <li class='${g.done ? 'done' : ''}'><span>${g.done ? '✓ ' : ''}${g.text}</span>
+        <progress max='${g.target}' value='${Math.min(g.value, g.target)}'></progress></li>`;
+
 /** Screen templates: (saved data, optional run summary) -> HTML. */
 const screens = {
   menu: d => `
     <h1>Flappy Birds</h1><p>Best: ${d.best} · 🪙 ${d.coins}</p>
-    ${btn('play', 'Play')}${btn('daily', `Daily challenge · 🔥 ${d.daily.streak}`)}${btn('skins', 'Customize')}${btn('goals', 'Goals')}${btn('scores', 'Leaderboard')}
+    ${btn('play', 'Play')}${btn('mode', `Mode: ${(MODES[d.mode] ?? MODES.classic).name}`)}${btn('daily', `Daily challenge · 🔥 ${d.daily.streak}`)}${btn('skins', 'Customize')}${btn('goals', 'Goals')}${btn('scores', 'Leaderboard')}
     ${btn('mute', d.muted ? '🔇 Sound off' : '🔊 Sound on')}`,
 
   over: (d, run) => {
@@ -41,10 +47,12 @@ const screens = {
     const goal = closest(d);                              // nearest unfinished goal: a "one more try" nudge
     return `
     <h2>Game Over</h2>
+    <small>${run.mode}${run.ranked ? '' : ' · practice, not ranked'}</small>
     ${medal ? `<p style='color:${medal.c}'>● ${medal.name} medal</p>` : ''}
     <p>Score ${run.score}${run.isBest ? ' — new best!' : ''}${run.coins ? ` · 🪙 +${run.coins}` : ''}</p>
-    <p>${!run.isBest && gap > 0 && gap <= 5 ? `Only ${gap} from your best! ` : ''}Best ${d.best}</p>
+    <p>${run.ranked && !run.isBest && gap > 0 && gap <= 5 ? `Only ${gap} from your best! ` : ''}Best ${d.best}</p>
     ${run.fresh.map(g => `<p>★ Goal complete: ${g.text}</p>`).join('')}
+    ${run.daily.map(g => `<p>★ Daily goal: ${g.text} (+${daily.REWARD} 🪙)</p>`).join('')}
     ${goal ? `<p>Next: ${goal.text}</p><progress max='${goal.target}' value='${Math.min(goal.value, goal.target)}'></progress>` : ''}
     ${btn('retry', 'Retry')}${btn('share', 'Share score')}${btn('menu', 'Menu')}`;
   },
@@ -57,15 +65,16 @@ const screens = {
 
   goals: d => `
     <h2>Goals</h2>
-    <ul>${progress(d).map(g => `
-      <li class='${g.done ? 'done' : ''}'><span>${g.done ? '✓ ' : ''}${g.text}</span>
-        <progress max='${g.target}' value='${Math.min(g.value, g.target)}'></progress></li>`).join('')}</ul>
+    <h3>Today · +${daily.REWARD} 🪙 each</h3>
+    <ul>${daily.progress(d).map(goalRow).join('')}</ul>
+    <h3>Lifetime</h3>
+    <ul>${progress(d).map(goalRow).join('')}</ul>
     ${back}`,
 
   scores: d => `
     <h2>Leaderboard</h2>
     ${d.board.length
-      ? `<ol>${d.board.map((e, i) => `<li><span>${i + 1}. ${Number(e.score)}</span><small>${esc(e.date)}</small></li>`).join('')}</ol>`
+      ? `<ol>${d.board.map((e, i) => `<li><span>${i + 1}. ${Number(e.score)}</span><small>${esc(e.mode ?? 'Classic')} · ${esc(e.date)}</small></li>`).join('')}</ol>`
       : '<p>No runs yet — go set a score!</p>'}
     ${back}`,
 };

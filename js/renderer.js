@@ -136,6 +136,13 @@ function pipe(c, p, s) {
     c.fill();
     c.stroke();
   }
+  if (p.shield) {                                                     // shield pickup: a pulsing cyan bubble
+    c.fillStyle = '#7fe9ff';
+    c.beginPath();
+    c.arc(p.x + w / 2, p.cy, 9 + Math.sin(s * 0.15) * 1.5, 0, TAU);
+    c.fill();
+    c.stroke();
+  }
 }
 
 /** Pipe segment shaded with flat bands (base, highlight, shadow) instead of a gradient. */
@@ -178,6 +185,7 @@ function bird(c, game, skin, s) {
   const blink = s % 200 < 6;                                                                       // ~every 3 s
   c.save();
   c.translate(WORLD.birdX, b.y + (idle ? Math.sin(s * 0.12) * 4 : 0));   // idle bob is visual only
+  if (game.grace > 0 && game.grace % 8 < 4) c.globalAlpha = 0.45;       // flicker while invulnerable (restored below)
   c.rotate(Math.max(-0.45, Math.min(1.1, b.v / 9)));                      // nose up when rising, dive when falling
   c.lineWidth = 2;
   c.strokeStyle = '#3a2a1a';
@@ -201,6 +209,13 @@ function bird(c, game, skin, s) {
   c.closePath();
   c.fill();
   c.stroke();
+  if (game.shield) {                                           // shield bubble around the bird
+    c.strokeStyle = '#7fe9ff';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.arc(0, 0, 21, 0, TAU);
+    c.stroke();
+  }
   c.restore();
 }
 

@@ -47,8 +47,8 @@ export function step() {
 }
 
 /** Crash feedback: strong shake plus a white flash. */
-export function hit() {
-  if (!reduced) { state.shake = 10; state.flash = 1; }
+export function hit(k = 1) {   // k scales the strength (1 = a full crash)
+  if (!reduced) { state.shake = 10 * k; state.flash = k; }
 }
 
 /** Soft flash, e.g. when you pass your personal best. */

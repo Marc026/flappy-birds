@@ -28,6 +28,7 @@ Tap, click, Space or ↑ to flap.
 | `js/storage.js` | localStorage persistence |
 | `js/fx.js` | Pooled particles, shake, flash and score pop (reduced-motion aware) |
 | `js/rng.js` | Seeded random numbers and the daily-challenge seed |
+| `js/daily.js` | The three daily goals (seeded by date, paid in coins) |
 | `js/config.js` | Tunable constants, skins, themes and goals |
 | `tests/` | Unit tests for the game rules |
 
@@ -35,6 +36,7 @@ Tap, click, Space or ↑ to flap.
 
 - **Skin or theme:** add an entry in `js/config.js`; set `unlock` to a goal id, or `null` for always available.
 - **Goal:** add to `GOALS` using the stat `best`, `games` or `total`.
+- **Mode:** add an entry to `MODES` in `js/config.js` (`ranked: false` makes it practice-only).
 
 ## Tests
 
