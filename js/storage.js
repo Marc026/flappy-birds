@@ -15,6 +15,9 @@ const DEFAULTS = {
   skin: 'sun',      // selected bird skin id
   theme: 'day',     // selected background theme id
   muted: false,     // sound off?
+  coins: 0,         // coins collected and not yet spent
+  bought: [],       // ids of skins/themes bought with coins
+  daily: { date: 0, best: 0, streak: 0 },   // daily challenge: last day played (YYYYMMDD), that day's best, streak
 };
 
 /** Load saved data merged over the defaults; tolerates blocked storage and corrupt JSON. */

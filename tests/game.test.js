@@ -36,3 +36,21 @@ test('passing a pipe scores one point', () => {
   g.update();
   assert.equal(g.score, 1);
 });
+
+test('coins are collected when the bird touches them', () => {
+  const g = new Game(1);
+  g.flap();
+  g.pipes = [{ x: 40, gy: g.bird.y, cy: g.bird.y, gap: 120, passed: false, amp: 0, ph: 0, coin: true }];
+  const events = g.update();
+  assert.ok(events.includes('coin'));
+  assert.equal(g.coins, 1);
+});
+
+test('speed grows with the score and late-game pipes sway', () => {
+  const g = new Game(3);
+  g.flap();
+  g.score = 20;
+  g.update();
+  assert.ok(g.speed > 2);          // faster than the base speed
+  assert.ok(g.pipes[0].amp > 0);   // pipes spawned after 15 points sway
+});

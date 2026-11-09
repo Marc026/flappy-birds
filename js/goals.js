@@ -18,3 +18,8 @@ export function claim(data) {
   data.done.push(...fresh.map(g => g.id));
   return fresh;
 }
+
+/** The unfinished goal closest to completion (null if all are done); shown on game over as a nudge. */
+export function closest(data) {
+  return progress(data).filter(g => !g.done).sort((a, b) => b.value / b.target - a.value / a.target)[0] ?? null;
+}

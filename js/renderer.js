@@ -1,54 +1,97 @@
 /**
  * renderer.js — all canvas drawing. It only reads game state and never changes it.
- * Layers, back to front: sky -> stars -> hills -> clouds -> pipes -> ground -> bird -> HUD.
+ * Guardrails: each frame draws only rects, circles and ellipses (no per-frame gradients or filters;
+ * every sky gradient is rendered ONCE into an offscreen canvas), and particles come from fx.js's fixed pool.
+ * Layers, back to front: sky -> far hills -> clouds -> near hills -> rain -> pipes/coins -> ground
+ *                         -> particles -> bird -> HUD -> flash.
  */
-import { W, H, WORLD } from './config.js';
+import { W, H, WORLD, THEMES } from './config.js';
 import { STATUS } from './game.js';
+import * as fx from './fx.js';
 
 const TAU = Math.PI * 2;                 // full circle in radians
 const GROUND_Y = H - WORLD.groundH;      // y of the ground's top edge
 const CAP_H = 18;                        // pipe cap (lip) height
 const CAP_OVER = 4;                      // how far a cap sticks out past the pipe body
 const CLOUDS = [[40, 90, 1], [210, 140, 0.8], [130, 50, 0.6]];   // [x, y, scale]; smaller = farther = slower
+const FONT = 'Trebuchet MS, sans-serif';
 
 /**
  * Draw one complete frame.
  * @param c       2D context (already scaled to logical units)
  * @param game    current Game state
  * @param look    { skin, theme } chosen in the customization menu
- * @param scroll  ticks elapsed: the clock for parallax and animation
+ * @param scroll  animation clock (advances with game speed)
+ * @param info    { best, coins }: saved stats for the HUD
  */
-export function draw(c, game, look, scroll) {
-  sky(c, look.theme);
-  hills(c, look.theme, scroll);
-  clouds(c, look.theme, scroll);
-  game.pipes.forEach(p => pipe(c, p));
+export function draw(c, game, look, scroll, info) {
+  // Score-driven world: from the chosen theme, blend toward the next one every 10 points.
+  const pos = Math.min(THEMES.indexOf(look.theme) + game.score / 10, THEMES.length - 1);
+  const i = Math.floor(pos);
+  const a = THEMES[i];
+  const b = THEMES[Math.min(i + 1, THEMES.length - 1)];
+  const th = pos - i < 0.5 ? a : b;      // theme that drives hill/cloud colours
+
+  c.save();
+  c.translate((Math.random() - 0.5) * fx.state.shake, (Math.random() - 0.5) * fx.state.shake);   // crash shake
+  sky(c, a, b, pos - i);
+  hills(c, th.hill, scroll, 0.2, 70, 20, 0.5);   // far layer: slower and faded
+  clouds(c, th, scroll);
+  hills(c, th.hill, scroll, 0.6, 35, 22, 1);     // near layer: faster and solid
+  if (pos >= 1.5) rain(c, scroll);               // late-game weather
+  game.pipes.forEach(p => pipe(c, p, scroll));
   ground(c, scroll);
-  bird(c, game.bird, look.skin, scroll);
-  hud(c, game);
+  particles(c);
+  bird(c, game, look.skin, scroll);
+  hud(c, game, info);
+  c.restore();
+  flash(c);
 }
 
-/** Vertical sky gradient, plus stars on night themes. */
-function sky(c, th) {
-  const g = c.createLinearGradient(0, 0, 0, GROUND_Y);
-  g.addColorStop(0, th.top);
-  g.addColorStop(1, th.bottom);
-  c.fillStyle = g;
-  c.fillRect(0, 0, W, H);
-  if (th.stars) {
+/** Pre-rendered sky per theme (built lazily, once): one drawImage per frame instead of a gradient. */
+const skies = new Map();
+function skyFor(th) {
+  if (!skies.has(th.id)) {
+    const cv = document.createElement('canvas');   // offscreen; 4 px wide is enough, it is stretched when drawn
+    cv.width = 4;
+    cv.height = GROUND_Y;
+    const g = cv.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, GROUND_Y);
+    grad.addColorStop(0, th.top);
+    grad.addColorStop(1, th.bottom);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 4, GROUND_Y);
+    skies.set(th.id, cv);
+  }
+  return skies.get(th.id);
+}
+
+/** Cross-fade sky `a` into sky `b` by factor f (0..1), with stars fading in for night. */
+function sky(c, a, b, f) {
+  c.drawImage(skyFor(a), 0, 0, W, GROUND_Y + 1);
+  if (b !== a && f > 0.01) {
+    c.globalAlpha = f;
+    c.drawImage(skyFor(b), 0, 0, W, GROUND_Y + 1);
+  }
+  const stars = a.stars ? 1 : b.stars ? f : 0;
+  if (stars > 0) {
+    c.globalAlpha = stars;
     c.fillStyle = '#fff';
     for (let i = 0; i < 24; i++) c.fillRect((i * 97) % W, (i * 53) % 220, 2, 2);   // fixed pseudo-random spots
   }
+  c.globalAlpha = 1;
 }
 
-/** Distant hills: a sine-wave silhouette that scrolls slowly (parallax). */
-function hills(c, th, s) {
-  c.fillStyle = th.hill;
+/** A hill silhouette (sine wave) scrolling at `speed` x the clock: slower = farther away. */
+function hills(c, color, s, speed, base, amp, alpha) {
+  c.globalAlpha = alpha;
+  c.fillStyle = color;
   c.beginPath();
   c.moveTo(0, H);
-  for (let x = 0; x <= W; x += 8) c.lineTo(x, GROUND_Y - 40 - 25 * Math.sin((x + s * 0.4) / 40));
+  for (let x = 0; x <= W; x += 8) c.lineTo(x, GROUND_Y - base - amp * Math.sin((x + s * speed) / 40));
   c.lineTo(W, H);
   c.fill();
+  c.globalAlpha = 1;
 }
 
 /** Clouds drifting left at different speeds; each is three overlapping circles. */
@@ -65,27 +108,44 @@ function clouds(c, th, s) {
   }
 }
 
-/** One pipe pair: shaded bodies with wider caps around the opening. */
-function pipe(c, p) {
+/** Night rain: 18 streaks whose positions are pure functions of the clock (no state, no allocation). */
+function rain(c, s) {
+  if (fx.reduced) return;
+  c.fillStyle = 'rgba(200, 220, 255, 0.5)';
+  for (let i = 0; i < 18; i++) {
+    const y = (i * 53 + s * 7) % GROUND_Y;
+    c.fillRect((i * 37 + y * 0.25) % W, y, 1.5, 9);
+  }
+}
+
+/** One pipe pair (bodies + caps around the current opening) and its spinning coin, if any. */
+function pipe(c, p, s) {
   const w = WORLD.pipeW;
-  const top = p.gy - p.gap / 2;   // bottom edge of the upper pipe
-  const bot = p.gy + p.gap / 2;   // top edge of the lower pipe
-  const g = c.createLinearGradient(p.x, 0, p.x + w, 0);   // left-to-right shading = cylinder look
-  g.addColorStop(0, '#2f8a2f');
-  g.addColorStop(0.35, '#7ee35a');
-  g.addColorStop(1, '#2a7a2a');
-  c.fillStyle = g;
+  const top = p.cy - p.gap / 2;   // bottom edge of the upper pipe
+  const bot = p.cy + p.gap / 2;   // top edge of the lower pipe
   c.strokeStyle = '#1d4d1d';
   c.lineWidth = 2;
   block(c, p.x, -2, w, top - CAP_H + 2);                              // upper body
   block(c, p.x - CAP_OVER, top - CAP_H, w + 2 * CAP_OVER, CAP_H);     // upper cap
   block(c, p.x - CAP_OVER, bot, w + 2 * CAP_OVER, CAP_H);             // lower cap
   block(c, p.x, bot + CAP_H, w, GROUND_Y - bot - CAP_H + 2);          // lower body (tucked under the ground)
+  if (p.coin) {                                                       // coin "spins": its width oscillates
+    c.fillStyle = '#ffd700';
+    c.beginPath();
+    c.ellipse(p.x + w / 2, p.cy, 2 + 6 * Math.abs(Math.cos(s * 0.08)), 8, 0, 0, TAU);
+    c.fill();
+    c.stroke();
+  }
 }
 
-/** Filled and outlined rectangle. */
+/** Pipe segment shaded with flat bands (base, highlight, shadow) instead of a gradient. */
 function block(c, x, y, w, h) {
-  c.fillRect(x, y, w, h);
+  c.fillStyle = '#4fb83a';
+  c.fillRect(x, y, w, h);                    // base
+  c.fillStyle = '#8bea6a';
+  c.fillRect(x + w * 0.15, y, w * 0.25, h);  // highlight band
+  c.fillStyle = '#2a7a2a';
+  c.fillRect(x + w * 0.78, y, w * 0.22, h);  // shadow band
   c.strokeRect(x, y, w, h);
 }
 
@@ -101,18 +161,38 @@ function ground(c, s) {
   c.fillRect(0, GROUND_Y + 10, W, 2);           // grass/dirt seam
 }
 
-/** The bird: tilts with its vertical speed and flaps its wing with the animation clock. */
-function bird(c, b, skin, s) {
+/** Live particles from the fixed pool (feathers, puffs, coin sparkles), drawn as small squares. */
+function particles(c) {
+  for (const p of fx.pool) {
+    if (!p.on) continue;
+    c.fillStyle = p.c;
+    c.fillRect(p.x, p.y, p.r, p.r);
+  }
+}
+
+/** The bird: tilts with its speed, flaps its wing, bobs while idle, blinks, and widens its eyes near a pipe. */
+function bird(c, game, skin, s) {
+  const b = game.bird;
+  const idle = game.status === STATUS.READY;
+  const near = game.pipes.some(p => p.x + WORLD.pipeW > WORLD.birdX && p.x - WORLD.birdX < 70);   // pipe close ahead
+  const blink = s % 200 < 6;                                                                       // ~every 3 s
   c.save();
-  c.translate(WORLD.birdX, b.y);
-  c.rotate(Math.max(-0.45, Math.min(1.1, b.v / 9)));   // nose up when rising, dive when falling
+  c.translate(WORLD.birdX, b.y + (idle ? Math.sin(s * 0.12) * 4 : 0));   // idle bob is visual only
+  c.rotate(Math.max(-0.45, Math.min(1.1, b.v / 9)));                      // nose up when rising, dive when falling
   c.lineWidth = 2;
   c.strokeStyle = '#3a2a1a';
   oval(c, 0, 0, 15, 12, skin.body);                            // body
   oval(c, 3, 5, 9, 5, skin.belly, false);                      // belly
   oval(c, -6, 2 + Math.sin(s * 0.5) * 5, 8, 5, skin.wing);     // wing (flapping)
-  oval(c, 7, -4, 5, 5, '#fff');                                // eye
-  oval(c, 9, -4, 2, 2, '#111', false);                         // pupil
+  if (blink) {
+    c.beginPath();                                             // closed eye: a short line
+    c.moveTo(3, -4);
+    c.lineTo(11, -4);
+    c.stroke();
+  } else {
+    oval(c, 7, -4, near ? 6.5 : 5, near ? 6.5 : 5, '#fff');          // eye (bigger when alarmed)
+    oval(c, 9, -4, near ? 3 : 2, near ? 3 : 2, '#111', false);       // pupil
+  }
   c.fillStyle = '#ff7a1a';                                     // beak
   c.beginPath();
   c.moveTo(11, -1);
@@ -133,24 +213,49 @@ function oval(c, x, y, rx, ry, fill, outline = true) {
   if (outline) c.stroke();
 }
 
-/** Heads-up display: the score while playing, a hint while waiting for the first flap. */
-function hud(c, game) {
+/** HUD: popping score, "NEW BEST!" tag, start hint, coin count and best score. */
+function hud(c, game, info) {
   c.textAlign = 'center';
   c.lineJoin = 'round';
   c.lineWidth = 6;
   c.strokeStyle = '#3a2a1a';
   c.fillStyle = '#fff';
   if (game.status === STATUS.READY) {
-    c.font = 'bold 22px Trebuchet MS, sans-serif';
+    c.font = `bold 22px ${FONT}`;
     outlined(c, 'Tap / Space to flap', W / 2, 150);
   } else {
-    c.font = 'bold 44px Trebuchet MS, sans-serif';
-    outlined(c, String(game.score), W / 2, 80);
+    c.save();
+    c.translate(W / 2, 80);
+    const k = 1 + fx.state.pop * 0.35;   // score "pop" when a point lands
+    c.scale(k, k);
+    c.font = `bold 44px ${FONT}`;
+    outlined(c, String(game.score), 0, 0);
+    c.restore();
+    if (info.best > 0 && game.score > info.best) {
+      c.font = `bold 16px ${FONT}`;
+      c.lineWidth = 4;
+      outlined(c, 'NEW BEST!', W / 2, 108);
+    }
   }
+  c.font = `bold 14px ${FONT}`;
+  c.lineWidth = 4;
+  c.textAlign = 'left';
+  outlined(c, `🪙 ${info.coins + game.coins}`, 8, 20);
+  c.textAlign = 'right';
+  outlined(c, `BEST ${info.best}`, W - 8, 20);
 }
 
 /** Text with a dark outline so it stays readable on any background. */
 function outlined(c, text, x, y) {
   c.strokeText(text, x, y);
   c.fillText(text, x, y);
+}
+
+/** White screen flash (crash, passing your best); drawn after the shake is undone. */
+function flash(c) {
+  if (fx.state.flash < 0.02) return;
+  c.globalAlpha = fx.state.flash * 0.6;
+  c.fillStyle = '#fff';
+  c.fillRect(0, 0, W, H);
+  c.globalAlpha = 1;
 }

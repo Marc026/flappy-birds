@@ -26,6 +26,8 @@ Tap, click, Space or ↑ to flap.
 | `js/ui.js` | Menu, customization, goals and leaderboard overlays |
 | `js/goals.js` | Goal progress and completion |
 | `js/storage.js` | localStorage persistence |
+| `js/fx.js` | Pooled particles, shake, flash and score pop (reduced-motion aware) |
+| `js/rng.js` | Seeded random numbers and the daily-challenge seed |
 | `js/config.js` | Tunable constants, skins, themes and goals |
 | `tests/` | Unit tests for the game rules |
 

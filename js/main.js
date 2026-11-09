@@ -1,29 +1,35 @@
 /**
- * main.js — application entry point. Wires state, input, audio, rendering and UI together and
- * runs a fixed-timestep loop: 60 simulation ticks per second regardless of display refresh rate.
+ * main.js — application entry point. Wires state, input, audio, effects, rendering and UI together
+ * and runs a fixed-timestep loop: 60 simulation ticks per second regardless of display refresh rate.
  */
-import { W, H, SCALE, SKINS, THEMES } from './config.js';
+import { W, H, SCALE, WORLD, SKINS, THEMES } from './config.js';
 import { Game, STATUS } from './game.js';
 import { draw } from './renderer.js';
 import { claim } from './goals.js';
 import { load, save } from './storage.js';
+import { dailySeed } from './rng.js';
+import * as fx from './fx.js';
 import * as audio from './audio.js';
 import * as ui from './ui.js';
 
-const STEP = 1000 / 60;   // milliseconds per simulation tick
+const STEP = 1000 / 60;    // milliseconds per simulation tick
+const LOCKOUT_MS = 300;    // after a crash, restart input is ignored briefly so a panic tap cannot skip the score screen
+const urlSeed = Number(new URLSearchParams(location.search).get('seed')) || null;   // shared challenge link: ?seed=123
 
 // --- Setup -------------------------------------------------------------------------------
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false });   // opaque canvas: cheaper to composite
 canvas.width = W * SCALE;
 canvas.height = H * SCALE;
 ctx.scale(SCALE, SCALE);   // draw in logical units; the extra pixels just make it sharper
 
 const data = load();       // persisted progress and settings (see storage.js)
 const game = new Game();   // rules and state of the current run
-let scroll = 0;            // ticks elapsed: drives parallax scrolling and animations
+let scroll = 0;            // animation clock: advances with game speed (parallax, ground, wing flaps)
 let last = performance.now();
 let acc = 0;               // simulated-time debt carried between frames
+let mode = 'classic';      // 'classic' = random pipes, 'daily' = today's shared seed
+let overAt = 0;            // timestamp of the last crash (restart lockout)
 
 /** Selected visual style; falls back to the defaults if a saved id no longer exists. */
 const look = () => ({
@@ -37,46 +43,109 @@ function frame(now) {
   acc += Math.min(now - last, 100);   // clamp so a backgrounded tab does not trigger a huge catch-up
   last = now;
   for (; acc >= STEP; acc -= STEP) tick();
-  draw(ctx, game, look(), scroll);
+  draw(ctx, game, look(), scroll, { best: data.best, coins: data.coins });
   requestAnimationFrame(frame);
 }
 
 /** Advance the simulation one tick and react to what happened. */
 function tick() {
-  if (game.status !== STATUS.OVER) scroll += 1;   // the world freezes after a crash
+  if (game.status !== STATUS.OVER) scroll += game.speed / WORLD.speed;   // the world freezes after a crash
+  fx.step();
   for (const event of game.update()) {
-    if (event === 'score') audio.sfx.score();
+    if (event === 'score') onScore();
+    else if (event === 'coin') onCoin();
     else if (event === 'hit') endRun();
   }
 }
 
-/** Record the finished run (stats, leaderboard, goals), persist it, then show the game-over screen. */
+/** A point landed: rising-pitch ding, HUD pop, music intensity, and a flash when you pass your best. */
+function onScore() {
+  audio.sfx.score(game.score);
+  fx.pop();
+  audio.setLevel(Math.min(3, Math.floor(game.score / 10)));   // faster, fuller music as you climb
+  if (data.best > 0 && game.score === data.best + 1) fx.flash(0.6);
+}
+
+/** Coin collected: chime plus a small golden burst. */
+function onCoin() {
+  audio.sfx.coin();
+  fx.emit(WORLD.birdX + 10, game.bird.y, 5, '#ffd700', 1.5);
+}
+
+/** Record the finished run (stats, coins, leaderboard, daily streak, goals), persist, show game over. */
 function endRun() {
+  overAt = performance.now();
   audio.sfx.hit();
+  fx.hit();
+  fx.emit(WORLD.birdX, game.bird.y, 12, look().skin.body, 3);   // feather burst
+  navigator.vibrate?.(40);                                       // haptics where supported (Android)
   const isBest = game.score > data.best;
   data.best = Math.max(data.best, game.score);
   data.games += 1;
   data.total += game.score;
+  data.coins += game.coins;
   if (game.score > 0) {   // zero-point runs would only clutter the leaderboard
     data.board = [...data.board, { score: game.score, date: new Date().toLocaleDateString() }]
       .sort((a, b) => b.score - a.score)
       .slice(0, 10);       // keep the top 10
   }
+  if (mode === 'daily') recordDaily();
   const fresh = claim(data);   // goals completed by this run
   save(data);
-  ui.show('over', data, { score: game.score, isBest, fresh });
+  ui.show('over', data, { score: game.score, isBest, fresh, coins: game.coins });
+}
+
+/** Daily challenge bookkeeping: the streak grows on consecutive days and resets after a gap. */
+function recordDaily() {
+  const today = dailySeed();
+  const yesterday = dailySeed(new Date(Date.now() - 864e5));
+  const d = data.daily;
+  if (d.date !== today) {
+    d.streak = d.date === yesterday ? d.streak + 1 : 1;
+    d.date = today;
+    d.best = 0;
+  }
+  d.best = Math.max(d.best, game.score);
 }
 
 // --- Input -------------------------------------------------------------------------------
 /** Flap (the first flap starts the run). Ignored while a menu is open or after a crash. */
 function flap() {
   if (ui.isOpen()) return;
-  if (game.flap()) audio.sfx.flap();
+  if (game.flap()) {
+    audio.sfx.flap();
+    fx.emit(WORLD.birdX - 12, game.bird.y + 6, 3, '#ffffff', 1.2);   // wing puff
+  }
+}
+
+/** Begin a run in the current mode (seeded for daily/shared links). Respects the post-crash lockout. */
+function startRun() {
+  if (ui.screen() === 'over' && performance.now() - overAt < LOCKOUT_MS) return;
+  audio.init();           // audio may only start from a user gesture; every caller is one
+  audio.startMusic();
+  audio.setLevel(0);
+  game.reset(mode === 'daily' ? dailySeed() : urlSeed ?? undefined);
+  ui.hide();
+}
+
+/** Share a link that replays the same pipes, via the Web Share API or the clipboard. */
+function share() {
+  const url = new URL(location.href);
+  url.search = `?seed=${game.seed}`;
+  const text = `I scored ${game.score} in Flappy Birds. Beat me on the same pipes!`;
+  if (navigator.share) navigator.share({ text, url: url.href }).catch(() => {});
+  else navigator.clipboard?.writeText(`${text} ${url.href}`);
 }
 
 canvas.addEventListener('pointerdown', flap);
 addEventListener('keydown', e => {
-  if (ui.isOpen() || e.repeat || !['Space', 'ArrowUp'].includes(e.code)) return;
+  if (e.repeat) return;
+  if (ui.screen() === 'over' && (e.code === 'Space' || e.code === 'Enter')) {   // instant retry from the keyboard
+    e.preventDefault();
+    startRun();
+    return;
+  }
+  if (ui.isOpen() || !['Space', 'ArrowUp'].includes(e.code)) return;
   e.preventDefault();   // stop Space from scrolling the page
   flap();
 });
@@ -90,11 +159,22 @@ function refresh(screen) {
 
 ui.bind((action, arg) => {
   switch (action) {
-    case 'play':   // audio may only start from a user gesture, and a click on Play is one
-      audio.init();
-      audio.startMusic();
-      game.reset();
-      ui.hide();
+    case 'play':
+      mode = 'classic';
+      startRun();
+      break;
+    case 'daily':
+      mode = 'daily';
+      startRun();
+      break;
+    case 'retry':
+      startRun();   // keeps the current mode
+      break;
+    case 'tap':     // tapping empty space on the game-over screen also retries
+      if (ui.screen() === 'over') startRun();
+      break;
+    case 'share':
+      share();
       break;
     case 'menu':
       game.reset();
@@ -113,6 +193,15 @@ ui.bind((action, arg) => {
       data.theme = arg;
       refresh('skins');
       break;
+    case 'buy': {   // spend coins on a locked skin/theme
+      const item = [...SKINS, ...THEMES].find(i => i.id === arg);
+      if (item && data.coins >= item.cost && !data.bought.includes(arg)) {
+        data.coins -= item.cost;
+        data.bought.push(arg);
+      }
+      refresh('skins');
+      break;
+    }
     case 'mute':
       data.muted = !data.muted;
       audio.setMuted(data.muted);

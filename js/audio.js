@@ -11,6 +11,7 @@ let ctx = null;     // AudioContext, created lazily by init()
 let timer = null;   // setInterval handle of the music sequencer
 let step = 0;       // position in the melody
 let muted = false;
+let level = 0;     // music intensity 0-3: faster tempo and an extra layer as the score climbs
 
 /** Play one note: oscillator -> decaying gain -> speakers. `delay` is seconds from now. */
 function tone(freq, dur, type, vol, delay = 0) {
@@ -39,14 +40,25 @@ export function startMusic() {
   timer = setInterval(() => {
     tone(MELODY[step % MELODY.length], 0.35, 'triangle', 0.07);                  // lead note
     if (step % 4 === 0) tone(BASS[(step / 4) % 4], 0.9, 'sine', 0.1);            // bass at the start of each bar
+    if (level >= 2 && step % 2 === 0) tone(MELODY[step % MELODY.length] * 2, 0.12, 'sine', 0.03);   // extra high layer
     step += 1;
-  }, STEP_MS);
+  }, Math.max(130, STEP_MS - level * 30));   // tempo rises with intensity
 }
 
 /** Stop the background track. */
 export function stopMusic() {
   clearInterval(timer);
   timer = null;
+}
+
+/** Set music intensity (0-3); restarts the sequencer so the new tempo applies immediately. */
+export function setLevel(l) {
+  if (l === level) return;
+  level = l;
+  if (timer) {
+    stopMusic();
+    startMusic();
+  }
 }
 
 /** Mute/unmute everything (the music keeps its schedule, it is just silent). */
@@ -57,6 +69,11 @@ export function setMuted(value) {
 /** Sound effects used by the game. */
 export const sfx = {
   flap: () => tone(520, 0.12, 'square', 0.04),
-  score: () => { tone(880, 0.1, 'sine', 0.1); tone(1175, 0.15, 'sine', 0.1, 0.08); },
+  score: (n = 0) => {   // pitch rises one semitone per point (capped at an octave) and resets each run
+    const k = 2 ** (Math.min(n, 12) / 12);
+    tone(880 * k, 0.1, 'sine', 0.1);
+    tone(1175 * k, 0.15, 'sine', 0.1, 0.08);
+  },
+  coin: () => tone(1568, 0.08, 'square', 0.05),
   hit: () => tone(110, 0.4, 'sawtooth', 0.15),
 };
