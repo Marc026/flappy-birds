@@ -17,6 +17,7 @@ const DEFAULTS = {
   muted: false,     // sound off?
   coins: 0,         // coins collected and not yet spent
   bought: [],       // ids of skins/themes bought with coins
+  endings: [],      // ids of story endings the player has seen (see story-data.js)
   mode: 'classic',  // selected game mode id (see MODES in config.js)
   today: { date: 0, best: 0, coins: 0, runs: 0, done: [] },   // progress on today's three daily goals (see daily.js)
   daily: { date: 0, best: 0, streak: 0 },   // daily challenge: last day played (YYYYMMDD), that day's best, streak

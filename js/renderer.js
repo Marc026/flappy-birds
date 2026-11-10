@@ -26,7 +26,7 @@ const FONT = 'Trebuchet MS, sans-serif';
  */
 export function draw(c, game, look, scroll, info) {
   // Score-driven world: from the chosen theme, blend toward the next one every 10 points.
-  const pos = Math.min(THEMES.indexOf(look.theme) + game.score / 10, THEMES.length - 1);
+  const pos = Math.min(THEMES.indexOf(look.theme) + (game.plan ? 0 : game.score / 10), THEMES.length - 1);   // story: time of day is scripted
   const i = Math.floor(pos);
   const a = THEMES[i];
   const b = THEMES[Math.min(i + 1, THEMES.length - 1)];
@@ -38,7 +38,7 @@ export function draw(c, game, look, scroll, info) {
   hills(c, th.hill, scroll, 0.2, 70, 20, 0.5);   // far layer: slower and faded
   clouds(c, th, scroll);
   hills(c, th.hill, scroll, 0.6, 35, 22, 1);     // near layer: faster and solid
-  if (pos >= 1.5) rain(c, scroll);               // late-game weather
+  if (game.plan ? game.plan.rain : pos >= 1.5) rain(c, scroll);               // late-game weather
   game.pipes.forEach(p => pipe(c, p, scroll));
   ground(c, scroll);
   particles(c);
@@ -120,6 +120,7 @@ function rain(c, s) {
 
 /** One pipe pair (bodies + caps around the current opening) and its spinning coin, if any. */
 function pipe(c, p, s) {
+  if (p.cy2 !== undefined) return decisionPipe(c, p);   // two-opening story pipe
   const w = WORLD.pipeW;
   const top = p.cy - p.gap / 2;   // bottom edge of the upper pipe
   const bot = p.cy + p.gap / 2;   // top edge of the lower pipe
@@ -230,6 +231,7 @@ function oval(c, x, y, rx, ry, fill, outline = true) {
 
 /** HUD: popping score, "NEW BEST!" tag, start hint, coin count and best score. */
 function hud(c, game, info) {
+  if (info.story) return storyHud(c, game, info.story);   // story mode has its own HUD
   c.textAlign = 'center';
   c.lineJoin = 'round';
   c.lineWidth = 6;
@@ -273,4 +275,54 @@ function flash(c) {
   c.fillStyle = '#fff';
   c.fillRect(0, 0, W, H);
   c.globalAlpha = 1;
+}
+
+/** Story decision pipe: three bodies, two openings (A above, B below), each labelled to the pipe's left. */
+function decisionPipe(c, p) {
+  const w = WORLD.pipeW;
+  const h = p.gap / 2;
+  const [a, b] = [p.cy, p.cy2];                       // centres of opening A and opening B
+  const wide = w + 2 * CAP_OVER;
+  c.strokeStyle = '#1d4d1d';
+  c.lineWidth = 2;
+  block(c, p.x, -2, w, a - h - CAP_H + 2);                                  // top body
+  block(c, p.x - CAP_OVER, a - h - CAP_H, wide, CAP_H);                     // cap above A
+  block(c, p.x - CAP_OVER, a + h, wide, CAP_H);                             // cap below A
+  block(c, p.x, a + h + CAP_H, w, b - h - CAP_H - (a + h + CAP_H));         // wall between the openings
+  block(c, p.x - CAP_OVER, b - h - CAP_H, wide, CAP_H);                     // cap above B
+  block(c, p.x - CAP_OVER, b + h, wide, CAP_H);                             // cap below B
+  block(c, p.x, b + h + CAP_H, w, GROUND_Y - (b + h + CAP_H) + 2);          // bottom body
+  c.font = `bold 13px ${FONT}`;                       // option labels, right-aligned against the pipe
+  c.textAlign = 'right';
+  c.lineJoin = 'round';
+  c.lineWidth = 4;
+  c.fillStyle = '#fff';
+  c.strokeStyle = '#3a2a1a';
+  outlined(c, `A · ${p.labels[0]}`, p.x - 8, a + 5);
+  outlined(c, `B · ${p.labels[1]}`, p.x - 8, b + 5);
+}
+
+/** Story HUD: bedtime clock (turns red once late), hearts, and the chapter title before the first flap. */
+function storyHud(c, game, s) {
+  c.lineJoin = 'round';
+  c.lineWidth = 4;
+  c.strokeStyle = '#3a2a1a';
+  c.font = `bold 15px ${FONT}`;
+  c.fillStyle = s.left > 0 ? '#fff' : '#ff8a8a';
+  c.textAlign = 'left';
+  outlined(c, `🕗 ${s.clock}`, 8, 22);
+  c.font = `bold 11px ${FONT}`;
+  outlined(c, 'bedtime 8:30 PM', 8, 38);
+  c.font = `bold 15px ${FONT}`;
+  c.fillStyle = '#fff';
+  c.textAlign = 'right';
+  outlined(c, `💛 ${s.love}`, W - 8, 22);
+  if (game.status === STATUS.READY) {
+    c.textAlign = 'center';
+    c.lineWidth = 5;
+    c.font = `bold 20px ${FONT}`;
+    outlined(c, game.plan?.title ?? '', W / 2, 120);
+    c.font = `bold 16px ${FONT}`;
+    outlined(c, 'Tap / Space to fly', W / 2, 150);
+  }
 }

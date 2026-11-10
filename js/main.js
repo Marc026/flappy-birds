@@ -7,6 +7,7 @@ import { Game, STATUS } from './game.js';
 import { draw } from './renderer.js';
 import { claim } from './goals.js';
 import * as daily from './daily.js';
+import * as Story from './story.js';
 import { load, save } from './storage.js';
 import { dailySeed } from './rng.js';
 import * as fx from './fx.js';
@@ -32,12 +33,16 @@ let scroll = 0;            // animation clock: advances with game speed (paralla
 let last = performance.now();
 let acc = 0;               // simulated-time debt carried between frames
 let mode = 'classic';      // 'classic' = random pipes, 'daily' = today's shared seed
+let story = null;          // story-mode state (null outside story mode), see story.js
+let sceneTheme = null;     // time-of-day theme forced by the current story segment
+let scene = null;          // cutscene on screen: { bg, art, lines, after }
+let lineIdx = 0;           // current dialogue line within the cutscene
 let overAt = 0;            // timestamp of the last crash (restart lockout)
 
 /** Selected visual style; falls back to the defaults if a saved id no longer exists. */
 const look = () => ({
   skin: SKINS.find(s => s.id === data.skin) ?? SKINS[0],
-  theme: THEMES.find(t => t.id === data.theme) ?? THEMES[0],
+  theme: THEMES.find(t => t.id === (sceneTheme ?? data.theme)) ?? THEMES[0],   // story segments set their own time of day
 });
 
 // --- Game loop ---------------------------------------------------------------------------
@@ -46,7 +51,11 @@ function frame(now) {
   acc += Math.min(now - last, 100);   // clamp so a backgrounded tab does not trigger a huge catch-up
   last = now;
   for (; acc >= STEP; acc -= STEP) tick();
-  draw(ctx, game, look(), scroll, { best: data.best, coins: data.coins });
+  draw(ctx, game, look(), scroll, {
+    best: data.best,
+    coins: data.coins,
+    story: story && { clock: Story.clock(story), left: story.time, love: story.love },   // HUD data in story mode
+  });
   requestAnimationFrame(frame);
 }
 
@@ -59,6 +68,8 @@ function tick() {
     else if (event === 'coin') onCoin();
     else if (event === 'shield') onShield();
     else if (event === 'break') onBreak();
+    else if (event === 'stumble') onStumble();
+    else if (event === 'choice') onChoice();
     else if (event === 'hit') endRun();
   }
 }
@@ -67,6 +78,10 @@ function tick() {
 function onScore() {
   audio.sfx.score(game.score);
   fx.pop();
+  if (story) {   // story mode: every pipe costs a minute; no score streak extras
+    Story.apply(story, { time: -1 });
+    return;
+  }
   audio.setLevel(Math.min(3, Math.floor(game.score / 10)));   // faster, fuller music as you climb
   if (data.best > 0 && game.score === data.best + 1) fx.flash(0.6);
 }
@@ -75,6 +90,88 @@ function onScore() {
 function onCoin() {
   audio.sfx.coin();
   fx.emit(WORLD.birdX + 10, game.bird.y, 5, '#ffd700', 1.5);
+}
+
+// --- Story mode ----------------------------------------------------------------------------
+/** Start the story from the beginning. */
+function startStory() {
+  audio.init();
+  audio.startMusic();
+  mode = 'story';
+  story = Story.newStory();
+  playNode();
+}
+
+/** Enter the current story node: a cutscene, a flight segment or the finale. */
+function playNode() {
+  const n = Story.node(story);
+  if (n.type === 'fly') startSegment(n);
+  else if (n.type === 'end') playEnding();
+  else showScene(n, () => { Story.next(story); playNode(); });
+}
+
+/** Show a cutscene; `after` runs when its last line is dismissed. */
+function showScene(s, after) {
+  scene = { ...s, after };
+  lineIdx = 0;
+  showLine();
+}
+
+/** Render the current dialogue line over the cutscene backdrop. */
+function showLine() {
+  const [who, text] = scene.lines[lineIdx];
+  const c = Story.CAST[who] ?? Story.CAST.narrator;
+  ui.show('scene', data, { bg: scene.bg, art: scene.art, who: c.name, emoji: c.emoji, text, last: lineIdx === scene.lines.length - 1 });
+}
+
+/** Advance the dialogue (tap, Space/Enter or the Next button). */
+function advanceScene() {
+  if (lineIdx < scene.lines.length - 1) {
+    lineIdx += 1;
+    showLine();
+  } else {
+    scene.after();
+  }
+}
+
+/** Begin a flight segment: set the time of day, music and difficulty, then let the player fly. */
+function startSegment(n) {
+  const tune = n.tune ? n.tune(story) : {};
+  const preset = { name: 'Story', gap: 120, minGap: 120, speed: 2, ramp: 0, sway: false, ranked: false, ...tune };
+  sceneTheme = n.theme;
+  audio.setLevel(n.level ?? 0);
+  game.reset(undefined, preset, { left: n.pipes, labels: n.labels, rain: n.rain, title: n.title });
+  ui.hide();
+}
+
+/** The bird flew through one of the two openings: bank coins, apply the decision, cut to the next scene. */
+function onChoice() {
+  game.status = STATUS.SCENE;      // freeze the world while the story reacts
+  data.coins += game.coins;
+  save(data);
+  audio.sfx.shield();              // chime: a decision was made
+  fx.flash(0.5);
+  Story.choose(story, game.choice);
+  playNode();
+}
+
+/** Story-mode crash: a two-minute delay, never game over. */
+function onStumble() {
+  Story.apply(story, { time: -2 });
+  audio.sfx.crack();
+  fx.hit(0.5);
+  fx.emit(WORLD.birdX, game.bird.y, 8, look().skin.body, 2.5);
+  navigator.vibrate?.(20);
+}
+
+/** Play the earned ending, remember it, then show the summary screen. */
+function playEnding() {
+  const e = Story.ending(story);
+  showScene(e, () => {
+    if (!data.endings.includes(e.id)) data.endings.push(e.id);
+    save(data);
+    ui.show('ending', data, { title: e.title, clock: Story.clock(story), love: story.love });
+  });
 }
 
 /** Shield picked up: chime plus a cyan burst. */
@@ -153,6 +250,8 @@ function startRun() {
   audio.init();           // audio may only start from a user gesture; every caller is one
   audio.startMusic();
   audio.setLevel(0);
+  story = null;           // a normal run leaves story mode
+  sceneTheme = null;
   game.reset(mode === 'daily' ? dailySeed() : urlSeed ?? undefined, MODES[modeKey()]);
   ui.hide();
 }
@@ -169,6 +268,11 @@ function share() {
 canvas.addEventListener('pointerdown', flap);
 addEventListener('keydown', e => {
   if (e.repeat) return;
+  if (ui.screen() === 'scene' && (e.code === 'Space' || e.code === 'Enter')) {   // skip through dialogue from the keyboard
+    e.preventDefault();
+    advanceScene();
+    return;
+  }
   if (ui.screen() === 'over' && (e.code === 'Space' || e.code === 'Enter')) {   // instant retry from the keyboard
     e.preventDefault();
     startRun();
@@ -207,11 +311,21 @@ ui.bind((action, arg) => {
       break;
     case 'tap':     // tapping empty space on the game-over screen also retries
       if (ui.screen() === 'over') startRun();
+      else if (ui.screen() === 'scene') advanceScene();   // tap anywhere to advance dialogue
+      break;
+    case 'story':
+      startStory();
+      break;
+    case 'next':
+      advanceScene();
       break;
     case 'share':
       share();
       break;
     case 'menu':
+      story = null;       // leave story mode if we were in it
+      sceneTheme = null;
+      mode = 'classic';
       game.reset();
       ui.show('menu', data);
       break;

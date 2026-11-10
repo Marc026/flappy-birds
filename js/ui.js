@@ -5,6 +5,7 @@
 import { SKINS, THEMES, GOALS, MEDALS, MODES } from './config.js';
 import { progress, closest } from './goals.js';
 import * as daily from './daily.js';
+import { ENDINGS } from './story-data.js';
 
 const root = document.getElementById('ui');   // overlay container declared in index.html
 
@@ -38,7 +39,7 @@ const goalRow = g => `
 const screens = {
   menu: d => `
     <h1>Flappy Birds</h1><p>Best: ${d.best} · 🪙 ${d.coins}</p>
-    ${btn('play', 'Play')}${btn('mode', `Mode: ${(MODES[d.mode] ?? MODES.classic).name}`)}${btn('daily', `Daily challenge · 🔥 ${d.daily.streak}`)}${btn('skins', 'Customize')}${btn('goals', 'Goals')}${btn('scores', 'Leaderboard')}
+    ${btn('story', '📖 Story')}${btn('play', 'Play')}${btn('mode', `Mode: ${(MODES[d.mode] ?? MODES.classic).name}`)}${btn('daily', `Daily challenge · 🔥 ${d.daily.streak}`)}${btn('skins', 'Customize')}${btn('goals', 'Goals')}${btn('scores', 'Leaderboard')}
     ${btn('mute', d.muted ? '🔇 Sound off' : '🔊 Sound on')}`,
 
   over: (d, run) => {
@@ -70,6 +71,19 @@ const screens = {
     <h3>Lifetime</h3>
     <ul>${progress(d).map(goalRow).join('')}</ul>
     ${back}`,
+
+  scene: (d, x) => `
+    <div class='scene' style='background:${x.bg}'>
+      <div class='art'>${x.art}</div>
+      <div class='box'><b>${x.emoji} ${x.who}</b><p>${x.text}</p></div>
+      ${btn('next', x.last ? 'Continue ▶' : 'Next ▶')}
+    </div>`,
+
+  ending: (d, x) => `
+    <h2>${x.title}</h2>
+    <p>Home at ${x.clock} · 💛 ${x.love}</p>
+    <p>Endings found: ${d.endings.length}/${Object.keys(ENDINGS).length}</p>
+    ${btn('story', 'Play again')}${btn('menu', 'Menu')}`,
 
   scores: d => `
     <h2>Leaderboard</h2>

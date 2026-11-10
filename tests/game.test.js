@@ -79,3 +79,40 @@ test('a shield absorbs one crash, then the next one is fatal', () => {
   assert.ok(g.update().includes('hit'));
   assert.equal(g.status, STATUS.OVER);
 });
+
+test('a decision pipe is safe through either opening and deadly on the wall between them', () => {
+  const g = new Game(1);
+  g.flap();
+  g.pipes = [{ x: 60, gy: 135, cy: 135, cy2: 345, gap: 110, passed: false, choice: -1 }];
+  g.bird.y = 345;
+  assert.equal(g.collides(), false);   // inside opening B
+  g.bird.y = 135;
+  assert.equal(g.collides(), false);   // inside opening A
+  g.bird.y = 240;
+  assert.equal(g.collides(), true);    // on the wall
+});
+
+test('a story segment spawns its pipes, then one decision pipe, then stops', () => {
+  const g = new Game(1, MODES.classic, { left: 1, labels: ['A', 'B'] });
+  g.flap();
+  const seen = new Set();
+  let choice = null;
+  for (let i = 0; i < 700 && choice === null; i++) {
+    g.bird.y = 240;                    // hold the bird steady mid-screen
+    g.bird.v = 0;
+    if (g.update().includes('choice')) choice = g.choice;
+    g.pipes.forEach(p => seen.add(p));
+  }
+  assert.equal(seen.size, 2);          // one ordinary pipe + one decision pipe, nothing after
+  assert.ok([...seen].some(p => p.cy2 !== undefined));
+  assert.ok([0, 1].includes(choice));
+  assert.equal(g.status, STATUS.PLAYING);
+});
+
+test('in a story segment a crash is a stumble, not game over', () => {
+  const g = new Game(1, MODES.classic, { left: 5, labels: ['A', 'B'] });
+  g.flap();
+  g.bird.y = 440;
+  assert.ok(g.update().includes('stumble'));
+  assert.equal(g.status, STATUS.PLAYING);
+});
