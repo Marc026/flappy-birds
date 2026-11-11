@@ -5,9 +5,10 @@
  * Layers, back to front: sky -> far hills -> clouds -> near hills -> rain -> pipes/coins -> ground
  *                         -> particles -> bird -> HUD -> flash.
  */
-import { W, H, WORLD, THEMES } from './config.js';
+import { W, H, WORLD, THEMES, STORM } from './config.js';
 import { STATUS } from './game.js';
 import * as fx from './fx.js';
+import { lightning, glow } from './storm.js';
 
 const TAU = Math.PI * 2;                 // full circle in radians
 const GROUND_Y = H - WORLD.groundH;      // y of the ground's top edge
@@ -26,19 +27,25 @@ const FONT = 'Trebuchet MS, sans-serif';
  */
 export function draw(c, game, look, scroll, info) {
   // Score-driven world: from the chosen theme, blend toward the next one every 10 points.
+  const storm = Boolean(game.plan?.rain);   // story chapter 4: a full thunderstorm backdrop
   const pos = Math.min(THEMES.indexOf(look.theme) + (game.plan ? 0 : game.score / 10), THEMES.length - 1);   // story: time of day is scripted
   const i = Math.floor(pos);
-  const a = THEMES[i];
-  const b = THEMES[Math.min(i + 1, THEMES.length - 1)];
+  const a = storm ? STORM : THEMES[i];
+  const b = storm ? STORM : THEMES[Math.min(i + 1, THEMES.length - 1)];
   const th = pos - i < 0.5 ? a : b;      // theme that drives hill/cloud colours
 
   c.save();
   c.translate((Math.random() - 0.5) * fx.state.shake, (Math.random() - 0.5) * fx.state.shake);   // crash shake
   sky(c, a, b, pos - i);
   hills(c, th.hill, scroll, 0.2, 70, 20, 0.5);   // far layer: slower and faded
-  clouds(c, th, scroll);
+  if (storm) {
+    stormClouds(c, scroll);
+    lightningLayer(c, scroll);
+  } else {
+    clouds(c, th, scroll);
+  }
   hills(c, th.hill, scroll, 0.6, 35, 22, 1);     // near layer: faster and solid
-  if (game.plan ? game.plan.rain : pos >= 1.5) rain(c, scroll);               // late-game weather
+  if (game.plan ? game.plan.rain : pos >= 1.5) rain(c, scroll, storm ? 44 : 18);               // late-game weather
   game.pipes.forEach(p => pipe(c, p, scroll));
   ground(c, scroll);
   particles(c);
@@ -109,11 +116,11 @@ function clouds(c, th, s) {
 }
 
 /** Night rain: 18 streaks whose positions are pure functions of the clock (no state, no allocation). */
-function rain(c, s) {
+function rain(c, s, n = 18) {
   if (fx.reduced) return;
   c.fillStyle = 'rgba(200, 220, 255, 0.5)';
-  for (let i = 0; i < 18; i++) {
-    const y = (i * 53 + s * 7) % GROUND_Y;
+  for (let i = 0; i < n; i++) {
+    const y = (i * 53 + s * (6 + (i % 3) * 2)) % GROUND_Y;   // three fall speeds give depth
     c.fillRect((i * 37 + y * 0.25) % W, y, 1.5, 9);
   }
 }
@@ -325,4 +332,51 @@ function storyHud(c, game, s) {
     c.font = `bold 16px ${FONT}`;
     outlined(c, 'Tap / Space to fly', W / 2, 150);
   }
+  // Choice banner: once the last ordinary pipe is behind us, spell out both options (A above, B below)
+  // so they can be read before the decision pipe even enters the frame.
+  const plan = game.plan;
+  if (plan && plan.left === 0 && game.status === STATUS.PLAYING && game.pipes.every(q => q.cy2 !== undefined || q.passed)) {
+    c.textAlign = 'center';
+    c.lineWidth = 4;
+    c.font = `bold 14px ${FONT}`;
+    c.fillStyle = '#fff';
+    outlined(c, `▲ A · ${plan.labels[0]}`, W / 2, 62);
+    outlined(c, `▼ B · ${plan.labels[1]}`, W / 2, 82);
+  }
+}
+
+/** Storm cloud banks: a solid band plus two layers of big dark circles drifting left at different speeds. */
+function stormClouds(c, s) {
+  const span = W + 160;                                  // wrap-around distance
+  c.fillStyle = '#262d42';
+  c.fillRect(0, 0, W, 44);                               // no sky peeks through at the very top
+  for (const [layer, speed, y, r, color] of [[0, 0.25, 40, 34, '#262d42'], [1, 0.5, 62, 28, '#3a4360']]) {
+    c.fillStyle = color;
+    for (let i = 0; i < 8; i++) {
+      const x = ((((i * 61 + layer * 30) - s * speed) % span) + span) % span - 40;
+      c.beginPath();
+      c.arc(x, y + ((i * 17) % 20), r + ((i * 7) % 12), 0, TAU);
+      c.fill();
+    }
+  }
+}
+
+/** Lightning: the whole sky flashes (timing from storm.js) and a zig-zag bolt of thin rects strikes. Skipped for reduced motion. */
+function lightningLayer(c, s) {
+  if (fx.reduced) return;
+  const l = lightning(s);
+  if (!l) return;
+  c.globalAlpha = glow(l.t) * 0.4;
+  c.fillStyle = '#dfe8ff';
+  c.fillRect(0, 0, W, GROUND_Y);                         // sky flash
+  if (l.t < 9) {                                         // the bolt itself, a different shape each strike
+    c.globalAlpha = 1;
+    c.fillStyle = '#fff';
+    let x = 50 + ((l.k * 97) % 220);
+    for (let i = 0; i < 7; i++) {
+      x += ((l.k * 31 + i * 53) % 25) - 12;
+      c.fillRect(x, 60 + i * 34, 4, 38);
+    }
+  }
+  c.globalAlpha = 1;
 }

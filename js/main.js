@@ -8,6 +8,7 @@ import { draw } from './renderer.js';
 import { claim } from './goals.js';
 import * as daily from './daily.js';
 import * as Story from './story.js';
+import { lightning } from './storm.js';
 import { load, save } from './storage.js';
 import { dailySeed } from './rng.js';
 import * as fx from './fx.js';
@@ -36,6 +37,7 @@ let mode = 'classic';      // 'classic' = random pipes, 'daily' = today's shared
 let story = null;          // story-mode state (null outside story mode), see story.js
 let sceneTheme = null;     // time-of-day theme forced by the current story segment
 let scene = null;          // cutscene on screen: { bg, art, lines, after }
+let lastStrike = -1;       // number of the lightning strike whose thunder already played
 let lineIdx = 0;           // current dialogue line within the cutscene
 let overAt = 0;            // timestamp of the last crash (restart lockout)
 
@@ -63,6 +65,13 @@ function frame(now) {
 function tick() {
   if (game.status !== STATUS.OVER) scroll += game.speed / WORLD.speed;   // the world freezes after a crash
   fx.step();
+  if (game.plan?.rain) {   // thunder rolls in after each flash (same clock the renderer uses for lightning)
+    const l = lightning(scroll);
+    if (l && l.k !== lastStrike) {
+      lastStrike = l.k;
+      audio.sfx.thunder();
+    }
+  }
   for (const event of game.update()) {
     if (event === 'score') onScore();
     else if (event === 'coin') onCoin();
@@ -121,7 +130,9 @@ function showScene(s, after) {
 function showLine() {
   const [who, text] = scene.lines[lineIdx];
   const c = Story.CAST[who] ?? Story.CAST.narrator;
-  ui.show('scene', data, { bg: scene.bg, art: scene.art, who: c.name, emoji: c.emoji, text, last: lineIdx === scene.lines.length - 1 });
+  const line = { who: c.name, emoji: c.emoji, text, last: lineIdx === scene.lines.length - 1 };
+  if (lineIdx === 0) ui.show('scene', data, { ...line, bg: scene.bg, art: scene.art, anim: scene.anim, ambient: scene.ambient });   // new scene: build it
+  else ui.line(line);   // same scene: swap only the dialogue, so the art and ambient animation keep running
 }
 
 /** Advance the dialogue (tap, Space/Enter or the Next button). */

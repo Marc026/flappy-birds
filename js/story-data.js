@@ -1,7 +1,8 @@
 /**
  * story-data.js — all story content as plain data: cast, backdrops, the scene graph and the endings.
  * Dialogue can be edited here without touching any game code. Node types:
- *   scene — a cutscene: dialogue `lines` of [speakerId, text], then `next`.
+ *   scene — a cutscene: dialogue `lines` of [speakerId, text], then `next`. Optional `anim` ('bob' | 'fly' | 'shake')
+ *           animates the emoji art; optional `ambient` ('rain' | 'storm' | 'fireflies' | 'stars') adds moving scenery.
  *   fly   — a flight segment: `pipes` ordinary pipes, then ONE decision pipe with two openings labelled
  *           by `labels`; the opening the bird flies through picks options[0] or options[1].
  *           Optional: `theme` (time of day), `rain`, `level` (music intensity), `tune(state)` -> difficulty.
@@ -50,11 +51,11 @@ export const NODES = {
   seg1: { type: 'fly', title: 'Chapter 1 · Downtown', theme: 'dusk', pipes: 4,
     labels: ['Skyway: fast, windy', 'Park: calm, slow'],
     options: [{ next: 'sky', fx: { flag: 'windy' } }, { next: 'park', fx: { time: -5 } }] },
-  sky: { type: 'scene', bg: BG.dusk, art: '🌬️🏙️', next: 'seg2', lines: [
+  sky: { type: 'scene', anim: 'fly', bg: BG.dusk, art: '🌬️🏙️', next: 'seg2', lines: [
     ['narrator', 'The Skyway whistles between the towers. It’s the fastest way home, and the wildest.'],
     ['pip', 'Hold on, little wings!'],
   ] },
-  park: { type: 'scene', bg: BG.dusk, art: '🌳✨', next: 'seg2', lines: [
+  park: { type: 'scene', ambient: 'fireflies', bg: BG.dusk, art: '🌳✨', next: 'seg2', lines: [
     ['narrator', 'The park is peaceful. Fireflies drift past like tiny lanterns.'],
     ['pip', 'Too pretty to rush… but I really should rush.'],
   ] },
@@ -78,13 +79,13 @@ export const NODES = {
   seg3: { type: 'fly', title: 'Chapter 3 · Quiet Street', theme: 'night', pipes: 4,
     labels: ['Help the lost chick', 'Keep flying'],
     options: [{ next: 'help', fx: { time: -6, love: 1, flag: 'helped' } }, { next: 'ignore', fx: { flag: 'ignored' } }] },
-  help: { type: 'scene', bg: BG.night, art: '🐣🌙', next: 'seg4', lines: [
+  help: { type: 'scene', ambient: 'stars', bg: BG.night, art: '🐣🌙', next: 'seg4', lines: [
     ['chick', 'I can’t find my nest!'],
     ['pip', 'Hop on. We’ll find it together.'],
     ['narrator', 'Two streets over, a porch light flicks on. Mrs. Hoot opens her door.'],
     ['hoot', 'Bless you, Pip! Go on, I’ll tell your kids you’re coming.'],
   ] },
-  ignore: { type: 'scene', bg: BG.night, art: '🌙💨', next: 'seg4', lines: [
+  ignore: { type: 'scene', ambient: 'stars', bg: BG.night, art: '🌙💨', next: 'seg4', lines: [
     ['narrator', 'A tiny chirp echoes behind you. Pip keeps flying.'],
     ['pip', 'Someone else will help… right?'],
   ] },
@@ -94,11 +95,11 @@ export const NODES = {
     labels: ['Fly through the storm', 'Wait under the bridge'],
     tune: () => ({ speed: 2.3 }),
     options: [{ next: 'storm', fx: { flag: 'soaked' } }, { next: 'bridge', fx: { time: -5 } }] },
-  storm: { type: 'scene', bg: BG.storm, art: '⛈️🐦', next: 'seg5', lines: [
+  storm: { type: 'scene', anim: 'shake', ambient: 'storm', bg: BG.storm, art: '⛈️🐦', next: 'seg5', lines: [
     ['narrator', 'Thunder cracks. Pip’s feathers are soaked, but home is close.'],
     ['pip', 'Almost there…'],
   ] },
-  bridge: { type: 'scene', bg: BG.storm, art: '🌉🌧️', next: 'seg5', lines: [
+  bridge: { type: 'scene', ambient: 'rain', bg: BG.storm, art: '🌉🌧️', next: 'seg5', lines: [
     ['narrator', 'Under the bridge, rain drums softly on the stones.'],
     ['pip', 'Five minutes. Just five minutes.'],
   ] },
@@ -123,7 +124,7 @@ export const ENDINGS = {
     ['pip', 'Teeth brushed? Then let me tell you about the longest flight of my life.'],
     ['narrator', 'Two chicks asleep by the last page. One very happy bird.'],
   ] },
-  justintime: { title: 'Just in Time', bg: BG.home, art: '🏠🌙', lines: s => [
+  justintime: { title: 'Just in Time', ambient: 'stars', bg: BG.home, art: '🏠🌙', lines: s => [
     ['narrator', 'The last light is still on when Pip slips inside.'],
     ['robin', 'Pip… you’re just in time.'],
     ['finch', 'Five more minutes?'],
@@ -131,13 +132,13 @@ export const ENDINGS = {
     ...(s.flags.ignored ? [['narrator', 'Pip can’t stop thinking about that tiny chirp. Tomorrow, Pip decides, I’ll listen.']] : []),
     ['narrator', 'Two sleepy goodnights. Made it, barely.'],
   ] },
-  late_helped: { title: 'A Kind Neighbor', bg: BG.night, art: '🏠🦉', lines: () => [
+  late_helped: { title: 'A Kind Neighbor', ambient: 'stars', bg: BG.night, art: '🏠🦉', lines: () => [
     ['narrator', 'The house is dark, but a lantern glows by the door.'],
     ['hoot', 'I tucked them in, Pip. You helped one of mine tonight, so I helped yours.'],
     ['pip', 'Thank you. I’m so sorry I’m late.'],
     ['narrator', 'Pip sits between two sleeping beds until the stars come out.'],
   ] },
-  late: { title: 'Tomorrow, I Promise', bg: BG.night, art: '🏠💤', lines: () => [
+  late: { title: 'Tomorrow, I Promise', ambient: 'stars', bg: BG.night, art: '🏠💤', lines: () => [
     ['narrator', 'Both chicks are fast asleep. Pip whispers an apology to the dark.'],
     ['narrator', 'A drawing waits on the pillow: “Dear Pip, we waited. Story time tomorrow?”'],
     ['pip', 'Tomorrow. I promise.'],

@@ -35,6 +35,22 @@ const goalRow = g => `
       <li class='${g.done ? 'done' : ''}'><span>${g.done ? '✓ ' : ''}${g.text}</span>
         <progress max='${g.target}' value='${Math.min(g.value, g.target)}'></progress></li>`;
 
+/** Split a string of emoji into one span per glyph so each can animate on its own (staggered with --i). */
+const glyphs = art => {
+  const parts = typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter().segment(art)].map(g => g.segment) : [art];
+  return parts.map((g, i) => `<span style='--i:${i}'>${g}</span>`).join('');
+};
+
+/** Wrap each word in a span so a line fades in word by word (pure CSS, no timers). */
+const reveal = text => text.split(' ').map((w, i) => `<span style='--w:${i}'>${w}</span>`).join(' ');
+
+/** Dialogue box contents: the speaker with portrait, then the revealed text. */
+const boxHtml = x => `<b>${x.emoji} ${x.who}</b><p>${reveal(x.text)}</p>`;
+
+/** Ambient scenery for a cutscene (rain, storm, fireflies, stars): a fixed handful of CSS-animated particles. */
+const ambient = kind => !kind ? '' : `<div class='amb ${kind}'>${Array.from({ length: 14 }, (_, i) =>
+  `<i style='--i:${i};left:${(i * 37) % 100}%${kind === 'rain' || kind === 'storm' ? '' : `;top:${(i * 53) % 80}%`}'></i>`).join('')}</div>`;
+
 /** Screen templates: (saved data, optional run summary) -> HTML. */
 const screens = {
   menu: d => `
@@ -74,8 +90,9 @@ const screens = {
 
   scene: (d, x) => `
     <div class='scene' style='background:${x.bg}'>
-      <div class='art'>${x.art}</div>
-      <div class='box'><b>${x.emoji} ${x.who}</b><p>${x.text}</p></div>
+      ${ambient(x.ambient)}
+      <div class='art ${x.anim ?? 'bob'}'>${glyphs(x.art)}</div>
+      <div class='box'>${boxHtml(x)}</div>
       ${btn('next', x.last ? 'Continue ▶' : 'Next ▶')}
     </div>`,
 
@@ -118,4 +135,10 @@ export function bind(handler) {
     const b = e.target.closest('button[data-act]');
     handler(b ? b.dataset.act : 'tap', b?.dataset.arg);   // a tap on empty overlay space is reported as 'tap'
   });
+}
+
+/** Swap only the dialogue box and button label of the cutscene on screen, so its art and ambient animation keep running. */
+export function line(x) {
+  root.querySelector('.box').innerHTML = boxHtml(x);
+  root.querySelector('button[data-act=next]').textContent = x.last ? 'Continue ▶' : 'Next ▶';
 }

@@ -31,6 +31,7 @@ Tap, click, Space or ↑ to flap.
 | `js/daily.js` | The three daily goals (seeded by date, paid in coins) |
 | `js/story-data.js` | Story content: cast, chapters, dialogue, decisions, endings |
 | `js/story.js` | Story state machine (clock, hearts, flags, endings), pure logic |
+| `js/storm.js` | Lightning timing shared by the renderer and the thunder sound |
 | `js/config.js` | Tunable constants, skins, themes and goals |
 | `tests/` | Unit tests for the game rules |
 
@@ -51,3 +52,5 @@ The leaderboard is stored per browser (localStorage). A shared one would need a 
 ## Story mode
 
 "Home Before Lights-Out": Pip clocks out at 7:50 PM and has until 8:30 PM to reach Robin and Finch. Five chapters with cutscenes and dialogue; at the end of each flight a pipe with two openings (A or B) lets you choose the path by flying through one. Every pipe costs a minute and a stumble costs two (a crash never ends the run), so your choices and your flying decide which of four endings you earn. Content lives in `js/story-data.js`, the engine in `js/story.js`.
+
+Cutscenes are animated with CSS only (staggered bobbing emoji, wind and thunder shakes, a word-by-word text reveal, and ambient rain, lightning, fireflies and stars), all switched off under reduced motion. Set `anim` and `ambient` on a scene in `js/story-data.js`. The storm chapter has a full thunderstorm backdrop: dark cloud banks, lightning flashes with thunder, and heavy rain.

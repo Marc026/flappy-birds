@@ -18,6 +18,7 @@ export const WORLD = {
   groundH: 40,     // ground strip height
   gap: 120,        // pipe opening at score 0 ...
   minGap: 96,      // ... shrinking toward this as the score rises
+  decisionSpawn: 220,   // story: ticks between the last ordinary pipe and the decision pipe (empty sky = time to read the options)
   spawn: 110,      // ticks between pipe pairs
 };
 
@@ -73,3 +74,6 @@ export const MODES = {
 
 /** Probability that a pipe pair carries a shield pickup (rolled before coins, see game.js). */
 export const SHIELD_CHANCE = 0.1;
+
+/** Backdrop for the story's storm chapter. Not a selectable theme, so it lives outside THEMES. */
+export const STORM = { id: 'storm', name: 'Storm', top: '#121829', bottom: '#4a5575', hill: '#1b2539', cloud: '#2d354b', stars: false };

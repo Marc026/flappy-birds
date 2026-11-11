@@ -33,6 +33,7 @@ export class Game {
     this.grace = 0;                         // ticks of pipe-invulnerability left after a shield breaks
     this.speed = mode.speed;               // current scroll speed (grows with the score)
     this.coins = 0;                         // coins collected this run
+    this.nextSpawn = 0;                     // tick at which the next pipe spawns
     this.ticks = 0;                         // ticks simulated this run (paces pipe spawning)
   }
 
@@ -60,7 +61,8 @@ export class Game {
     this.bird.y += this.bird.v;
 
     // Spawn a pipe pair at a fixed interval; the opening narrows as the score rises (difficulty ramp).
-    if (this.ticks++ % WORLD.spawn === 0 && !(this.plan && this.plan.done)) {
+    if (this.ticks++ === this.nextSpawn && !(this.plan && this.plan.done)) {
+      this.nextSpawn += WORLD.spawn;
       const gap = Math.max(this.mode.minGap, this.mode.gap - this.score * 2);
       const margin = gap / 2 + 40;   // keep the opening clear of the screen edges
       const gy = margin + this.rng() * (H - WORLD.groundH - 2 * margin);   // seeded, so identical for the same seed
@@ -74,8 +76,10 @@ export class Game {
       });
       if (this.plan) {   // story segment: N ordinary pipes, then ONE decision pipe with two openings, then no more spawns
         const p = this.pipes[this.pipes.length - 1];
-        if (this.plan.left > 0) this.plan.left -= 1;
-        else {
+        if (this.plan.left > 0) {
+          this.plan.left -= 1;
+          if (this.plan.left === 0) this.nextSpawn += WORLD.decisionSpawn - WORLD.spawn;   // empty stretch before the decision pipe
+        } else {
           Object.assign(p, { gy: 135, cy: 135, cy2: 345, gap: 110, amp: 0, coin: false, shield: false, choice: -1, labels: this.plan.labels });
           this.plan.done = true;
         }

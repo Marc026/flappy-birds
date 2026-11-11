@@ -51,5 +51,5 @@ export function endingId(s) {
 export function ending(s) {
   const id = endingId(s);
   const e = ENDINGS[id];
-  return { id, title: e.title, bg: e.bg, art: e.art, lines: e.lines(s) };
+  return { id, title: e.title, bg: e.bg, art: e.art, ambient: e.ambient, lines: e.lines(s) };
 }

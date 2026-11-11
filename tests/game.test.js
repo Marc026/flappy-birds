@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, STATUS } from '../js/game.js';
-import { MODES } from '../js/config.js';
+import { MODES, WORLD } from '../js/config.js';
 
 // Unit tests for the pure game rules (run with `npm test`; no browser needed).
 
@@ -96,13 +96,20 @@ test('a story segment spawns its pipes, then one decision pipe, then stops', () 
   const g = new Game(1, MODES.classic, { left: 1, labels: ['A', 'B'] });
   g.flap();
   const seen = new Set();
+  const spawnedAt = [];   // loop index at which each pipe first appeared
   let choice = null;
   for (let i = 0; i < 700 && choice === null; i++) {
     g.bird.y = 240;                    // hold the bird steady mid-screen
     g.bird.v = 0;
     if (g.update().includes('choice')) choice = g.choice;
-    g.pipes.forEach(p => seen.add(p));
+    g.pipes.forEach(p => {
+      if (!seen.has(p)) {
+        seen.add(p);
+        spawnedAt.push(i);
+      }
+    });
   }
+  assert.equal(spawnedAt[1] - spawnedAt[0], WORLD.decisionSpawn);   // extra empty stretch before the decision pipe
   assert.equal(seen.size, 2);          // one ordinary pipe + one decision pipe, nothing after
   assert.ok([...seen].some(p => p.cy2 !== undefined));
   assert.ok([0, 1].includes(choice));
